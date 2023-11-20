@@ -259,14 +259,18 @@ An overview of the six time values available from \fIcurl_easy_getinfo(3)\fP
 
 curl_easy_perform()
     |
-    |--NAMELOOKUP
-    |--|--CONNECT
-    |--|--|--APPCONNECT
-    |--|--|--|--PRETRANSFER
-    |--|--|--|--|--STARTTRANSFER
-    |--|--|--|--|--|--TOTAL
-    |--|--|--|--|--|--REDIRECT
+    |--QUEUE_TIME
+    |--|--NAMELOOKUP
+    |--|--|--CONNECT
+    |--|--|--|--APPCONNECT
+    |--|--|--|--|--PRETRANSFER
+    |--|--|--|--|--|--STARTTRANSFER
+    |--|--|--|--|--|--|--TOTAL
+    |--|--|--|--|--|--|--REDIRECT
 .fi
+.IP "QUEUE_TIME"
+\fICURLINFO_QUEUE_TIME_T(3\fP. The time during which the transfer was held in
+a waiting queue before it could start for real. (Added in 8.6.0)
 .IP NAMELOOKUP
 \fICURLINFO_NAMELOOKUP_TIME(3)\fP and \fICURLINFO_NAMELOOKUP_TIME_T(3)\fP.
 The time it took from the start until the name resolving was completed.
