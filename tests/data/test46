@@ -98,10 +98,17 @@ domain..tld	FALSE	/	FALSE	0	ASPSESSIONIDQGGQQSJJ	GKNBDIFAAOFDPDAIEAKDIBKE
 domain..tld	FALSE	/	FALSE	0	ckySession	temporary
 domain..tld	FALSE	/	FALSE	1734689579	ckyPersistent	permanent
 domain..tld	FALSE	/want	FALSE	0	empty	
+%if large-time
 #HttpOnly_domain..tld	FALSE	/want	FALSE	22139150993	mooo2	indeed2
 domain..tld	FALSE	/	FALSE	22139150993	mooo	indeed
 www.loser.com	FALSE	/	FALSE	22139150993	UID	99
 www.fake.come	FALSE	/	FALSE	22147483647	cookiecliente	si
+%else
+#HttpOnly_domain..tld	FALSE	/want	FALSE	2139150993	mooo2	indeed2
+domain..tld	FALSE	/	FALSE	2139150993	mooo	indeed
+www.loser.com	FALSE	/	FALSE	2139150993	UID	99
+www.fake.come	FALSE	/	FALSE	2147483647	cookiecliente	si
+%endif
 </file>
 </verify>
 </testcase>
