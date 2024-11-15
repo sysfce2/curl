@@ -677,7 +677,7 @@ output_auth_headers(struct Curl_easy *data,
           auth, data->state.aptr.user ?
           data->state.aptr.user : "");
 #endif
-    authstatus->multipass = (!authstatus->done) ? TRUE : FALSE;
+    authstatus->multipass = !authstatus->done;
   }
   else
     authstatus->multipass = FALSE;
@@ -2248,8 +2248,9 @@ CURLcode Curl_http_cookies(struct Curl_easy *data,
     addcookies = data->set.str[STRING_COOKIE];
 
   if(data->cookies || addcookies) {
-    struct Cookie *co = NULL; /* no cookies from start */
+    struct Curl_llist list;
     int count = 0;
+    int rc = 1;
 
     if(data->cookies && data->state.cookie_engine) {
       const char *host = data->state.aptr.cookiehost ?
@@ -2258,17 +2259,19 @@ CURLcode Curl_http_cookies(struct Curl_easy *data,
         conn->handler->protocol&(CURLPROTO_HTTPS|CURLPROTO_WSS) ||
         strcasecompare("localhost", host) ||
         !strcmp(host, "127.0.0.1") ||
-        !strcmp(host, "::1") ? TRUE : FALSE;
+        !strcmp(host, "::1");
       Curl_share_lock(data, CURL_LOCK_DATA_COOKIE, CURL_LOCK_ACCESS_SINGLE);
-      co = Curl_cookie_getlist(data, data->cookies, host, data->state.up.path,
-                               secure_context);
+      rc = Curl_cookie_getlist(data, data->cookies, host, data->state.up.path,
+                               secure_context, &list);
       Curl_share_unlock(data, CURL_LOCK_DATA_COOKIE);
     }
-    if(co) {
-      struct Cookie *store = co;
+    if(!rc) {
+      struct Curl_llist_node *n;
       size_t clen = 8; /* hold the size of the generated Cookie: header */
-      /* now loop through all cookies that matched */
-      while(co) {
+
+      /* loop through all cookies that matched */
+      for(n = Curl_llist_head(&list); n; n = Curl_node_next(n)) {
+        struct Cookie *co = Curl_node_elem(n);
         if(co->value) {
           size_t add;
           if(!count) {
@@ -2290,9 +2293,8 @@ CURLcode Curl_http_cookies(struct Curl_easy *data,
           clen += add + (count ? 2 : 0);
           count++;
         }
-        co = co->next; /* next cookie please */
       }
-      Curl_cookie_freelist(store);
+      Curl_llist_destroy(&list, NULL);
     }
     if(addcookies && !result && !linecap) {
       if(!count)
@@ -3039,8 +3041,7 @@ CURLcode Curl_http_header(struct Curl_easy *data,
         char *persistentauth = Curl_copy_header_value(hd);
         if(!persistentauth)
           return CURLE_OUT_OF_MEMORY;
-        negdata->noauthpersist = checkprefix("false", persistentauth) ?
-          TRUE : FALSE;
+        negdata->noauthpersist = !!checkprefix("false", persistentauth);
         negdata->havenoauthpersist = TRUE;
         infof(data, "Negotiate: noauthpersist -> %d, header part: %s",
               negdata->noauthpersist, persistentauth);
@@ -3081,7 +3082,7 @@ CURLcode Curl_http_header(struct Curl_easy *data,
         conn->handler->protocol&(CURLPROTO_HTTPS|CURLPROTO_WSS) ||
         strcasecompare("localhost", host) ||
         !strcmp(host, "127.0.0.1") ||
-        !strcmp(host, "::1") ? TRUE : FALSE;
+        !strcmp(host, "::1");
 
       Curl_share_lock(data, CURL_LOCK_DATA_COOKIE,
                       CURL_LOCK_ACCESS_SINGLE);
@@ -4542,7 +4543,7 @@ static void http_exp100_send_anyway(struct Curl_easy *data)
 bool Curl_http_exp100_is_selected(struct Curl_easy *data)
 {
   struct Curl_creader *r = Curl_creader_get_by_type(data, &cr_exp100);
-  return r ? TRUE : FALSE;
+  return !!r;
 }
 
 #endif /* CURL_DISABLE_HTTP */

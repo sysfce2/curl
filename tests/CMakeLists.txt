@@ -21,7 +21,7 @@
 # SPDX-License-Identifier: curl
 #
 ###########################################################################
-option(CURL_TEST_BUNDLES "Bundle libtests/unittests into single binaries" OFF)
+option(CURL_TEST_BUNDLES "Bundle libtest and unittest tests into single binaries" OFF)
 
 find_program(TEST_NGHTTPX "nghttpx")
 if(NOT TEST_NGHTTPX)
@@ -72,7 +72,6 @@ function(add_pytest _targetname _test_flags)
   endif()
   string(REPLACE " " ";" _test_flags_list "${_test_flags}")
   add_custom_target(${_targetname}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMAND pytest ${_test_flags_list} "${CMAKE_CURRENT_SOURCE_DIR}/http"
     DEPENDS "${_depends}"
     VERBATIM USES_TERMINAL
@@ -106,7 +105,7 @@ add_runtests(test-full      "-a -p -r")
 # ~flaky means that it ignores results of tests using the flaky keyword
 add_runtests(test-nonflaky  "-a -p ~flaky ~timing-dependent")
 add_runtests(test-ci        "-a -p ~flaky ~timing-dependent -r -rm -j20")
-add_runtests(test-torture   "-a -t -j2")
+add_runtests(test-torture   "-a -t -j20")
 add_runtests(test-event     "-a -e")
 
 add_pytest(curl-pytest      "")

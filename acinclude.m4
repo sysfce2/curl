@@ -504,7 +504,7 @@ AC_DEFUN([CURL_CHECK_LIBS_LDAP], [
     '-llber -lldap' \
     '-lldapssl -lldapx -lldapsdk' \
     '-lldapsdk -lldapx -lldapssl' \
-    '-lldap -llber -lssl -lcrypto' ; do
+    '-lldap -llber -lssl -lcrypto'; do
 
     if test "$curl_cv_ldap_LIBS" = "unknown"; then
       if test -z "$x_nlibs"; then
@@ -564,6 +564,10 @@ AC_DEFUN([CURL_CHECK_LIBS_LDAP], [
         LIBS="$curl_cv_ldap_LIBS"
       else
         LIBS="$curl_cv_ldap_LIBS $curl_cv_save_LIBS"
+      fi
+      # FIXME: Enable when ldap was detected via pkg-config
+      if false; then
+        LIBCURL_PC_REQUIRES_PRIVATE="ldap $LIBCURL_PC_REQUIRES_PRIVATE"
       fi
       AC_MSG_RESULT([$curl_cv_ldap_LIBS])
       ;;
@@ -1551,10 +1555,14 @@ AC_DEFUN([CURL_PREPARE_BUILDINFO], [
       *-*-*bsd*|*-*-aix*|*-*-hpux*|*-*-interix*|*-*-irix*|*-*-linux*|*-*-solaris*|*-*-sunos*|*-apple-*|*-*-cygwin*|*-*-msys*)
         curl_pflags="${curl_pflags} UNIX";;
     esac
+    case $host in
+      *-*-*bsd*)
+        curl_pflags="${curl_pflags} BSD";;
+    esac
   fi
-  case $host_os in
-    cygwin*|msys*) curl_pflags="${curl_pflags} CYGWIN";;
-  esac
+  if test "$curl_cv_cygwin" = 'yes'; then
+    curl_pflags="${curl_pflags} CYGWIN"
+  fi
   case $host_os in
     msys*) curl_pflags="${curl_pflags} MSYS";;
   esac

@@ -32,20 +32,21 @@ macro(add_header_include _check _header)
   endif()
 endmacro()
 
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+set(_cmake_try_compile_target_type_save ${CMAKE_TRY_COMPILE_TARGET_TYPE})
+set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
 
 if(NOT DEFINED HAVE_STRUCT_SOCKADDR_STORAGE)
+  cmake_push_check_state()
   unset(CMAKE_EXTRA_INCLUDE_FILES)
   if(WIN32)
     set(CMAKE_EXTRA_INCLUDE_FILES "winsock2.h")
-    set(CMAKE_REQUIRED_DEFINITIONS "-DWIN32_LEAN_AND_MEAN")
     set(CMAKE_REQUIRED_LIBRARIES "ws2_32")
   elseif(HAVE_SYS_SOCKET_H)
     set(CMAKE_EXTRA_INCLUDE_FILES "sys/socket.h")
   endif()
   check_type_size("struct sockaddr_storage" SIZEOF_STRUCT_SOCKADDR_STORAGE)
   set(HAVE_STRUCT_SOCKADDR_STORAGE ${HAVE_SIZEOF_STRUCT_SOCKADDR_STORAGE})
-  set(CMAKE_EXTRA_INCLUDE_FILES "")
+  cmake_pop_check_state()
 endif()
 
 if(NOT WIN32)
@@ -74,7 +75,8 @@ check_c_source_compiles("${_source_epilogue}
     return 0;
   }" HAVE_STRUCT_TIMEVAL)
 
-unset(CMAKE_TRY_COMPILE_TARGET_TYPE)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE ${_cmake_try_compile_target_type_save})
+unset(_cmake_try_compile_target_type_save)
 
 # Detect HAVE_GETADDRINFO_THREADSAFE
 
@@ -90,7 +92,7 @@ elseif(APPLE OR
        CMAKE_SYSTEM_NAME STREQUAL "NetBSD" OR
        CMAKE_SYSTEM_NAME STREQUAL "SunOS")
   set(HAVE_GETADDRINFO_THREADSAFE TRUE)
-elseif(CMAKE_SYSTEM_NAME MATCHES "BSD")
+elseif(BSD OR CMAKE_SYSTEM_NAME MATCHES "BSD")
   set(HAVE_GETADDRINFO_THREADSAFE FALSE)
 endif()
 
@@ -150,3 +152,5 @@ if(NOT WIN32 AND NOT DEFINED HAVE_CLOCK_GETTIME_MONOTONIC_RAW)
       return 0;
     }" HAVE_CLOCK_GETTIME_MONOTONIC_RAW)
 endif()
+
+unset(_source_epilogue)

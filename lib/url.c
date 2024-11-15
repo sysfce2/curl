@@ -338,6 +338,7 @@ CURLcode Curl_close(struct Curl_easy **datap)
   Curl_wildcard_dtor(&data->wildcard);
   Curl_freeset(data);
   Curl_headers_cleanup(data);
+  Curl_netrc_cleanup(&data->state.netrc);
   free(data);
   return CURLE_OK;
 }
@@ -505,10 +506,10 @@ CURLcode Curl_open(struct Curl_easy **curl)
   CURLcode result;
   struct Curl_easy *data;
 
-  /* Very simple start-up: alloc the struct, init it with zeroes and return */
+  /* simple start-up: alloc the struct, init it with zeroes and return */
   data = calloc(1, sizeof(struct Curl_easy));
   if(!data) {
-    /* this is a very serious error */
+    /* this is a serious error */
     DEBUGF(fprintf(stderr, "Error: calloc of Curl_easy failed\n"));
     return CURLE_OUT_OF_MEMORY;
   }
@@ -545,6 +546,7 @@ CURLcode Curl_open(struct Curl_easy **curl)
 #ifndef CURL_DISABLE_HTTP
     Curl_llist_init(&data->state.httphdrs, NULL);
 #endif
+    Curl_netrc_init(&data->state.netrc);
   }
 
   if(result) {
@@ -649,13 +651,13 @@ bool Curl_on_disconnect(struct Curl_easy *data,
 }
 
 /*
- * Curl_xfer_may_multiplex()
+ * xfer_may_multiplex()
  *
  * Return a TRUE, iff the transfer can be done over an (appropriate)
  * multiplexed connection.
  */
-static bool Curl_xfer_may_multiplex(const struct Curl_easy *data,
-                                    const struct connectdata *conn)
+static bool xfer_may_multiplex(const struct Curl_easy *data,
+                               const struct connectdata *conn)
 {
   /* If an HTTP protocol and multiplexing is enabled */
   if((conn->handler->protocol & PROTO_FAMILY_HTTP) &&
@@ -878,16 +880,16 @@ static bool url_match_conn(struct connectdata *conn, void *userdata)
   }
 
   if(needle->localdev || needle->localport) {
-    /* If we are bound to a specific local end (IP+port), we must not
-       reuse a random other one, although if we did not ask for a
-       particular one we can reuse one that was bound.
+    /* If we are bound to a specific local end (IP+port), we must not reuse a
+       random other one, although if we did not ask for a particular one we
+       can reuse one that was bound.
 
        This comparison is a bit rough and too strict. Since the input
-       parameters can be specified in numerous ways and still end up the
-       same it would take a lot of processing to make it really accurate.
-       Instead, this matching will assume that reuses of bound connections
-       will most likely also reuse the exact same binding parameters and
-       missing out a few edge cases should not hurt anyone very much.
+       parameters can be specified in numerous ways and still end up the same
+       it would take a lot of processing to make it really accurate. Instead,
+       this matching will assume that reuses of bound connections will most
+       likely also reuse the exact same binding parameters and missing out a
+       few edge cases should not hurt anyone much.
     */
     if((conn->localport != needle->localport) ||
        (conn->localportrange != needle->localportrange) ||
@@ -1246,7 +1248,7 @@ ConnectionExists(struct Curl_easy *data,
   memset(&match, 0, sizeof(match));
   match.data = data;
   match.needle = needle;
-  match.may_multiplex = Curl_xfer_may_multiplex(data, needle);
+  match.may_multiplex = xfer_may_multiplex(data, needle);
 
 #ifdef USE_NTLM
   match.want_ntlm_http = ((data->state.authhost.want & CURLAUTH_NTLM) &&
@@ -1341,22 +1343,19 @@ static struct connectdata *allocate_conn(struct Curl_easy *data)
   /* note that these two proxy bits are now just on what looks to be
      requested, they may be altered down the road */
   conn->bits.proxy = (data->set.str[STRING_PROXY] &&
-                      *data->set.str[STRING_PROXY]) ? TRUE : FALSE;
+                      *data->set.str[STRING_PROXY]);
   conn->bits.httpproxy = (conn->bits.proxy &&
                           (conn->http_proxy.proxytype == CURLPROXY_HTTP ||
                            conn->http_proxy.proxytype == CURLPROXY_HTTP_1_0 ||
-                           IS_HTTPS_PROXY(conn->http_proxy.proxytype))) ?
-    TRUE : FALSE;
-  conn->bits.socksproxy = (conn->bits.proxy &&
-                           !conn->bits.httpproxy) ? TRUE : FALSE;
+                           IS_HTTPS_PROXY(conn->http_proxy.proxytype)));
+  conn->bits.socksproxy = (conn->bits.proxy && !conn->bits.httpproxy);
 
   if(data->set.str[STRING_PRE_PROXY] && *data->set.str[STRING_PRE_PROXY]) {
     conn->bits.proxy = TRUE;
     conn->bits.socksproxy = TRUE;
   }
 
-  conn->bits.proxy_user_passwd =
-    (data->state.aptr.proxyuser) ? TRUE : FALSE;
+  conn->bits.proxy_user_passwd = !!data->state.aptr.proxyuser;
   conn->bits.tunnel_proxy = data->set.tunnel_thru_httpproxy;
 #endif /* CURL_DISABLE_PROXY */
 
@@ -1858,10 +1857,10 @@ static CURLcode parseurlandfillconn(struct Curl_easy *data,
     return result;
 
   /*
-   * username and password set with their own options override the
-   * credentials possibly set in the URL.
+   * username and password set with their own options override the credentials
+   * possibly set in the URL, but netrc does not.
    */
-  if(!data->set.str[STRING_PASSWORD]) {
+  if(!data->state.aptr.passwd || (data->state.creds_from != CREDS_OPTION)) {
     uc = curl_url_get(uh, CURLUPART_PASSWORD, &data->state.up.password, 0);
     if(!uc) {
       char *decoded;
@@ -1874,12 +1873,13 @@ static CURLcode parseurlandfillconn(struct Curl_easy *data,
       result = Curl_setstropt(&data->state.aptr.passwd, decoded);
       if(result)
         return result;
+      data->state.creds_from = CREDS_URL;
     }
     else if(uc != CURLUE_NO_PASSWORD)
       return Curl_uc_to_curlcode(uc);
   }
 
-  if(!data->set.str[STRING_USERNAME]) {
+  if(!data->state.aptr.user || (data->state.creds_from != CREDS_OPTION)) {
     /* we do not use the URL API's URL decoder option here since it rejects
        control codes and we want to allow them for some schemes in the user
        and password fields */
@@ -1893,13 +1893,10 @@ static CURLcode parseurlandfillconn(struct Curl_easy *data,
         return result;
       conn->user = decoded;
       result = Curl_setstropt(&data->state.aptr.user, decoded);
+      data->state.creds_from = CREDS_URL;
     }
     else if(uc != CURLUE_NO_USER)
       return Curl_uc_to_curlcode(uc);
-    else if(data->state.aptr.passwd) {
-      /* no user was set but a password, set a blank user */
-      result = Curl_setstropt(&data->state.aptr.user, "");
-    }
     if(result)
       return result;
   }
@@ -1961,10 +1958,10 @@ static CURLcode setup_range(struct Curl_easy *data)
     else
       s->range = strdup(data->set.str[STRING_SET_RANGE]);
 
-    s->rangestringalloc = (s->range) ? TRUE : FALSE;
-
     if(!s->range)
       return CURLE_OUT_OF_MEMORY;
+
+    s->rangestringalloc = TRUE;
 
     /* tell ourselves to fetch this range */
     s->use_range = TRUE;        /* enable range download */
@@ -2006,8 +2003,8 @@ static CURLcode setup_connection_internals(struct Curl_easy *data,
   }
 
   if(conn->primary.remote_port < 0)
-    /* we check for -1 here since if proxy was detected already, this
-       was very likely already set to the proxy port */
+    /* we check for -1 here since if proxy was detected already, this was
+       likely already set to the proxy port */
     conn->primary.remote_port = p->defport;
 
   /* Now create the destination name */
@@ -2683,13 +2680,14 @@ static CURLcode override_login(struct Curl_easy *data,
     int ret;
     bool url_provided = FALSE;
 
-    if(data->state.aptr.user) {
+    if(data->state.aptr.user &&
+       (data->state.creds_from != CREDS_NETRC)) {
       /* there was a username in the URL. Use the URL decoded version */
       userp = &data->state.aptr.user;
       url_provided = TRUE;
     }
 
-    ret = Curl_parsenetrc(conn->host.name,
+    ret = Curl_parsenetrc(&data->state.netrc, conn->host.name,
                           userp, passwdp,
                           data->set.str[STRING_NETRC_FILE]);
     if(ret > 0) {
@@ -2731,6 +2729,7 @@ static CURLcode override_login(struct Curl_easy *data,
       result = Curl_setstropt(&data->state.aptr.user, *userp);
       if(result)
         return result;
+      data->state.creds_from = CREDS_NETRC;
     }
   }
   if(data->state.aptr.user) {
@@ -2748,6 +2747,7 @@ static CURLcode override_login(struct Curl_easy *data,
     CURLcode result = Curl_setstropt(&data->state.aptr.passwd, *passwdp);
     if(result)
       return result;
+    data->state.creds_from = CREDS_NETRC;
   }
   if(data->state.aptr.passwd) {
     uc = curl_url_set(data->state.uh, CURLUPART_PASSWORD,

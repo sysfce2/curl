@@ -312,10 +312,14 @@ static const struct LongShort aliases[]= {
   {"tcp-fastopen",               ARG_BOOL, ' ', C_TCP_FASTOPEN},
   {"tcp-nodelay",                ARG_BOOL, ' ', C_TCP_NODELAY},
   {"telnet-option",              ARG_STRG, 't', C_TELNET_OPTION},
+#ifdef DEBUGBUILD
+  {"test-duphandle",             ARG_BOOL, ' ', C_TEST_DUPHANDLE},
   {"test-event",                 ARG_BOOL, ' ', C_TEST_EVENT},
+#endif
   {"tftp-blksize",               ARG_STRG, ' ', C_TFTP_BLKSIZE},
   {"tftp-no-options",            ARG_BOOL, ' ', C_TFTP_NO_OPTIONS},
   {"time-cond",                  ARG_STRG, 'z', C_TIME_COND},
+  {"tls-earlydata",              ARG_BOOL, ' ', C_TLS_EARLYDATA},
   {"tls-max",                    ARG_STRG, ' ', C_TLS_MAX},
   {"tls13-ciphers",              ARG_STRG, ' ', C_TLS13_CIPHERS},
   {"tlsauthtype",                ARG_STRG, ' ', C_TLSAUTHTYPE},
@@ -390,7 +394,7 @@ void parse_cert_parameter(const char *cert_parameter,
   param_place = cert_parameter;
   while(*param_place) {
     span = strcspn(param_place, ":\\");
-    strncpy(certname_place, param_place, span);
+    memcpy(certname_place, param_place, span);
     param_place += span;
     certname_place += span;
     /* we just ate all the non-special chars. now we are on either a special
@@ -944,7 +948,7 @@ static ParameterError set_rate(struct GlobalConfig *global,
   if(numlen > sizeof(number) -1)
     return PARAM_NUMBER_TOO_LARGE;
 
-  strncpy(number, nextarg, numlen);
+  memcpy(number, nextarg, numlen);
   number[numlen] = 0;
   err = str2unum(&denominator, number);
   if(err)
@@ -1026,7 +1030,6 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
 {
   int rc;
   const char *parse = NULL;
-  time_t now;
   bool longopt = FALSE;
   bool singleopt = FALSE; /* when true means '-o foo' used '-ofoo' */
   size_t nopts = 0; /* options processed in `flag`*/
@@ -1218,7 +1221,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       config->disallow_username_in_url = toggle;
       break;
     case C_EPSV: /* --epsv */
-      config->disable_epsv = (!toggle) ? TRUE : FALSE;
+      config->disable_epsv = !toggle;
       break;
     case C_DNS_SERVERS: /* --dns-servers */
       if(!curlinfo->ares_num) /* c-ares is needed for this */
@@ -1248,7 +1251,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       }
       break;
     case C_ALPN: /* --alpn */
-      config->noalpn = (!toggle) ? TRUE : FALSE;
+      config->noalpn = !toggle;
       break;
     case C_LIMIT_RATE: /* --limit-rate */
       err = GetSizeParameter(global, nextarg, "rate", &value);
@@ -1371,7 +1374,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       config->disable_eprt = toggle;
       break;
     case C_EPRT: /* --eprt */
-      config->disable_eprt = (!toggle) ? TRUE : FALSE;
+      config->disable_eprt = !toggle;
       break;
     case C_XATTR: /* --xattr */
       config->xattr = toggle;
@@ -1552,7 +1555,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       config->ftp_ssl_reqd = toggle;
       break;
     case C_SESSIONID: /* --sessionid */
-      config->disable_sessionid = (!toggle) ? TRUE : FALSE;
+      config->disable_sessionid = !toggle;
       break;
     case C_FTP_SSL_CONTROL: /* --ftp-ssl-control */
       if(toggle && !feature_ssl)
@@ -1582,7 +1585,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       config->raw = toggle;
       break;
     case C_KEEPALIVE: /* --keepalive */
-      config->nokeepalive = (!toggle) ? TRUE : FALSE;
+      config->nokeepalive = !toggle;
       break;
     case C_KEEPALIVE_TIME: /* --keepalive-time */
       err = str2unum(&config->alivetime, nextarg);
@@ -1653,13 +1656,14 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
     case C_SASL_IR: /* --sasl-ir */
       config->sasl_ir = toggle;
       break;
-    case C_TEST_EVENT: /* --test-event */
 #ifdef DEBUGBUILD
-      global->test_event_based = toggle;
-#else
-      warnf(global, "--test-event is ignored unless a debug build");
-#endif
+    case C_TEST_DUPHANDLE: /* --test-duphandle */
+      global->test_duphandle = toggle;
       break;
+    case C_TEST_EVENT: /* --test-event */
+      global->test_event_based = toggle;
+      break;
+#endif
     case C_UNIX_SOCKET: /* --unix-socket */
       config->abstract_unix_socket = FALSE;
       err = getstr(&config->unix_socket_path, nextarg, DENY_BLANK);
@@ -1690,6 +1694,10 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
     case C_ABSTRACT_UNIX_SOCKET: /* --abstract-unix-socket */
       config->abstract_unix_socket = TRUE;
       err = getstr(&config->unix_socket_path, nextarg, DENY_BLANK);
+      break;
+    case C_TLS_EARLYDATA: /* --tls-earlydata */
+      if(feature_ssl)
+        config->ssl_allow_earlydata = toggle;
       break;
     case C_TLS_MAX: /* --tls-max */
       err = str2tls_max(&config->ssl_version_max, nextarg);
@@ -1912,13 +1920,10 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
         err = PARAM_ENGINES_REQUESTED;
       }
       break;
-#ifndef USE_ECH
-    case C_ECH: /* --ech, not implemented by default */
-      err = PARAM_LIBCURL_DOESNT_SUPPORT;
-      break;
-#else
     case C_ECH: /* --ech */
-      if(strlen(nextarg) > 4 && strncasecompare("pn:", nextarg, 3)) {
+      if(!feature_ech)
+        err = PARAM_LIBCURL_DOESNT_SUPPORT;
+      else if(strlen(nextarg) > 4 && strncasecompare("pn:", nextarg, 3)) {
         /* a public_name */
         err = getstr(&config->ech_public, nextarg, DENY_BLANK);
       }
@@ -1962,7 +1967,6 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
       err = getstr(&config->ech, nextarg, DENY_BLANK);
     }
     break;
-#endif
     case C_CAPATH: /* --capath */
       err = getstr(&config->capath, nextarg, DENY_BLANK);
       break;
@@ -2167,7 +2171,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
                    nextarg,
                    &config->mimeroot,
                    &config->mimecurrent,
-                   (cmd == C_FORM_STRING) ? TRUE : FALSE)) /* literal string */
+                   (cmd == C_FORM_STRING))) /* literal string */
         err = PARAM_BAD_USE;
       else if(SetHTTPrequest(config, TOOL_HTTPREQ_MIMEPOST, &config->httpreq))
         err = PARAM_BAD_USE;
@@ -2646,8 +2650,7 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
         nextarg++;
         break;
       }
-      now = time(NULL);
-      config->condtime = (curl_off_t)curl_getdate(nextarg, &now);
+      config->condtime = (curl_off_t)curl_getdate(nextarg, NULL);
       if(-1 == config->condtime) {
         /* now let's see if it is a filename to get the time from instead! */
         rc = getfiletime(nextarg, global, &value);

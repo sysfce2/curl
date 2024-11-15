@@ -55,7 +55,7 @@
 /* disables negotiate authentication */
 #cmakedefine CURL_DISABLE_NEGOTIATE_AUTH 1
 
-/* disables AWS-SIG4 */
+/* disables aws-sigv4 */
 #cmakedefine CURL_DISABLE_AWS 1
 
 /* disables DICT */
@@ -219,6 +219,9 @@
 /* Define to 1 if you have the `closesocket' function. */
 #cmakedefine HAVE_CLOSESOCKET 1
 
+/* Define to 1 if you have the `CloseSocket' function. */
+#cmakedefine HAVE_CLOSESOCKET_CAMEL 1
+
 /* Define to 1 if you have the <dirent.h> header file. */
 #cmakedefine HAVE_DIRENT_H 1
 
@@ -242,9 +245,6 @@
 
 /* Define to 1 if you have the fseeko declaration. */
 #cmakedefine HAVE_DECL_FSEEKO 1
-
-/* Define to 1 if you have the _fseeki64 function. */
-#cmakedefine HAVE__FSEEKI64 1
 
 /* Define to 1 if you have the ftruncate function. */
 #cmakedefine HAVE_FTRUNCATE 1
@@ -317,9 +317,6 @@
 
 /* Define to 1 if you have the <gssapi/gssapi.h> header file. */
 #cmakedefine HAVE_GSSAPI_GSSAPI_H 1
-
-/* Define to 1 if you have the <gssapi/gssapi_krb5.h> header file. */
-#cmakedefine HAVE_GSSAPI_GSSAPI_KRB5_H 1
 
 /* if you have the GNU gssapi libraries */
 #cmakedefine HAVE_GSSGNU 1
@@ -409,6 +406,9 @@
 /* Define to 1 if you have the <netinet/in.h> header file. */
 #cmakedefine HAVE_NETINET_IN_H 1
 
+/* Define to 1 if you have the <netinet/in6.h> header file. */
+#cmakedefine HAVE_NETINET_IN6_H 1
+
 /* Define to 1 if you have the <netinet/tcp.h> header file. */
 #cmakedefine HAVE_NETINET_TCP_H 1
 
@@ -481,6 +481,9 @@
 /* Define to 1 if you have the `setmode' function. */
 #cmakedefine HAVE_SETMODE 1
 
+/* Define to 1 if you have the `_setmode' function. */
+#cmakedefine HAVE__SETMODE 1
+
 /* Define to 1 if you have the `setrlimit' function. */
 #cmakedefine HAVE_SETRLIMIT 1
 
@@ -507,6 +510,9 @@
 
 /* Define to 1 if you have the `socket' function. */
 #cmakedefine HAVE_SOCKET 1
+
+/* Define to 1 if you have the <proto/bsdsocket.h> header file. */
+#cmakedefine HAVE_PROTO_BSDSOCKET_H 1
 
 /* Define to 1 if you have the socketpair function. */
 #cmakedefine HAVE_SOCKETPAIR 1
@@ -626,7 +632,7 @@
 #cmakedefine NEED_REENTRANT 1
 
 /* cpu-machine-OS */
-#cmakedefine OS ${OS}
+#cmakedefine CURL_OS ${CURL_OS}
 
 /* Name of package */
 #cmakedefine PACKAGE ${PACKAGE}
@@ -711,6 +717,9 @@ ${SIZEOF_TIME_T_CODE}
 
 /* if wolfSSL has the wolfSSL_DES_ecb_encrypt function. */
 #cmakedefine HAVE_WOLFSSL_DES_ECB_ENCRYPT 1
+
+/* if wolfSSL has the wolfSSL_BIO_new function. */
+#cmakedefine HAVE_WOLFSSL_BIO 1
 
 /* if wolfSSL has the wolfSSL_BIO_set_shutdown function. */
 #cmakedefine HAVE_WOLFSSL_FULL_BIO 1

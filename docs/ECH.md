@@ -8,8 +8,8 @@ SPDX-License-Identifier: curl
 
 We have added support for ECH to curl. It can use HTTPS RRs published in the
 DNS if curl uses DoH, or else can accept the relevant ECHConfigList values
-from the command line. This works with OpenSSL, wolfSSL or BoringSSL as the
-TLS provider.
+from the command line. This works with OpenSSL, wolfSSL, BoringSSL or AWS-LC as
+the TLS provider.
 
 This feature is EXPERIMENTAL. DO NOT USE IN PRODUCTION.
 
@@ -94,7 +94,7 @@ We currently support the following new curl command line arguments/options:
     - ``grease`` if attempting ECH is not possible, then send a GREASE ECH extension
     - ``hard`` hard-fail the connection if ECH cannot be attempted
     - ``ecl:<b64value>`` a base64 encoded ECHConfigList, rather than one accessed from the DNS
-    - ``pn:<name>`` over-ride the ``public_name`` from an ECHConfigList
+    - ``pn:<name>`` override the ``public_name`` from an ECHConfigList
 
 Note that in the above "attempt ECH" means the client emitting a TLS
 ClientHello with a "real" ECH extension, but that does not mean that the
@@ -149,7 +149,7 @@ the verbose output, e.g.:
 ```
 
 At that point, you could copy the base64 encoded value above and try again.
-For now, this only works for the OpenSSL and BoringSSL builds.
+For now, this only works for the OpenSSL and BoringSSL/AWS-LC builds.
 
 ## Default settings
 
@@ -330,16 +330,16 @@ Then:
     autoreconf -fi
     LDFLAGS="-Wl,-rpath,$HOME/code/boringssl/inst/lib" ./configure --with-ssl=$HOME/code/boringssl/inst --enable-ech --enable-httpsrr
     ...lots of output...
-    WARNING: ECH HTTPSRR enabled but marked EXPERIMENTAL. Use with caution!
+    WARNING: ECH HTTPSRR enabled but marked EXPERIMENTAL. Use with caution.
     make
 ```
 
-The BoringSSL APIs are fairly similar to those in our ECH-enabled OpenSSL
-fork, so code changes are also in ``lib/vtls/openssl.c``, protected
+The BoringSSL/AWS-LC APIs are fairly similar to those in our ECH-enabled
+OpenSSL fork, so code changes are also in ``lib/vtls/openssl.c``, protected
 via ``#ifdef OPENSSL_IS_BORINGSSL`` and are mostly obvious API variations.
 
-The BoringSSL APIs however do not support the ``--ech pn:`` command line
-variant as of now.
+The BoringSSL/AWS-LC APIs however do not support the ``--ech pn:`` command
+line variant as of now.
 
 ## wolfSSL build
 
@@ -401,7 +401,7 @@ Then there are some functional code changes:
 The lack of support for ``--ech false`` is because wolfSSL has decided to
 always at least GREASE if built to support ECH. In other words, GREASE is
 a compile time choice for wolfSSL, but a runtime choice for OpenSSL or
-BoringSSL. (Both are reasonable.)
+BoringSSL/AWS-LC. (Both are reasonable.)
 
 ## Additional notes
 
@@ -474,5 +474,5 @@ to get the HTTPS RR and pass the ECHConfigList from that on the command line,
 if needed, or one can access the value from command line output in verbose more
 and then reuse that in another invocation.
 
-Both our OpenSSL fork and BoringSSL have APIs for both controlling GREASE and
-accessing and logging ``retry_configs``, it seems wolfSSL has neither.
+Both our OpenSSL fork and BoringSSL/AWS-LC have APIs for both controlling GREASE
+and accessing and logging ``retry_configs``, it seems wolfSSL has neither.

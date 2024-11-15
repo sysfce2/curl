@@ -433,6 +433,8 @@ static int h2_client_new(struct Curl_cfilter *cf,
 {
   struct cf_h2_ctx *ctx = cf->ctx;
   nghttp2_option *o;
+  nghttp2_mem mem = {NULL, Curl_nghttp2_malloc, Curl_nghttp2_free,
+                     Curl_nghttp2_calloc, Curl_nghttp2_realloc};
 
   int rc = nghttp2_option_new(&o);
   if(rc)
@@ -445,7 +447,7 @@ static int h2_client_new(struct Curl_cfilter *cf,
      HTTP field value. */
   nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation(o, 1);
 #endif
-  rc = nghttp2_session_client_new2(&ctx->h2, cbs, cf, o);
+  rc = nghttp2_session_client_new3(&ctx->h2, cbs, cf, o, &mem);
   nghttp2_option_del(o);
   return rc;
 }
@@ -789,8 +791,11 @@ static ssize_t send_callback(nghttp2_session *h2,
   (void)flags;
   DEBUGASSERT(data);
 
-  nwritten = Curl_bufq_write_pass(&ctx->outbufq, buf, blen,
-                                  nw_out_writer, cf, &result);
+  if(!cf->connected)
+    nwritten = Curl_bufq_write(&ctx->outbufq, buf, blen, &result);
+  else
+    nwritten = Curl_bufq_write_pass(&ctx->outbufq, buf, blen,
+                                    nw_out_writer, cf, &result);
   if(nwritten < 0) {
     if(result == CURLE_AGAIN) {
       ctx->nw_out_blocked = 1;
@@ -1116,9 +1121,6 @@ static CURLcode on_stream_frame(struct Curl_cfilter *cf,
         return CURLE_RECV_ERROR;
       }
     }
-    if(frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-      drain_stream(cf, data, stream);
-    }
     break;
   case NGHTTP2_HEADERS:
     if(stream->bodystarted) {
@@ -1134,10 +1136,10 @@ static CURLcode on_stream_frame(struct Curl_cfilter *cf,
       return CURLE_RECV_ERROR;
 
     /* Only final status code signals the end of header */
-    if(stream->status_code / 100 != 1) {
+    if(stream->status_code / 100 != 1)
       stream->bodystarted = TRUE;
+    else
       stream->status_code = -1;
-    }
 
     h2_xfer_write_resp_hd(cf, data, stream, STRCONST("\r\n"), stream->closed);
 
@@ -1183,6 +1185,22 @@ static CURLcode on_stream_frame(struct Curl_cfilter *cf,
     break;
   default:
     break;
+  }
+
+  if(frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
+    if(!stream->closed && !stream->body_eos &&
+       ((stream->status_code >= 400) || (stream->status_code < 200))) {
+      /* The server did not give us a positive response and we are not
+       * done uploading the request body. We need to stop doing that and
+       * also inform the server that we aborted our side. */
+      CURL_TRC_CF(data, cf, "[%d] EOS frame with unfinished upload and "
+                  "HTTP status %d, abort upload by RST",
+                  stream_id, stream->status_code);
+      nghttp2_submit_rst_stream(ctx->h2, NGHTTP2_FLAG_NONE,
+                                stream->id, NGHTTP2_STREAM_CLOSED);
+      stream->closed = TRUE;
+    }
+    drain_stream(cf, data, stream);
   }
   return CURLE_OK;
 }
@@ -1898,6 +1916,11 @@ out:
                 nghttp2_strerror(rv), rv);
     return CURLE_SEND_ERROR;
   }
+  /* Defer flushing during the connect phase so that the SETTINGS and
+   * other initial frames are sent together with the first request.
+   * Unless we are 'connect_only' where the request will never come. */
+  if(!cf->connected && !cf->conn->connect_only)
+    return CURLE_OK;
   return nw_out_flush(cf, data);
 }
 
@@ -2439,6 +2462,7 @@ static CURLcode cf_h2_connect(struct Curl_cfilter *cf,
   struct cf_h2_ctx *ctx = cf->ctx;
   CURLcode result = CURLE_OK;
   struct cf_call_data save;
+  bool first_time = FALSE;
 
   if(cf->connected) {
     *done = TRUE;
@@ -2460,11 +2484,14 @@ static CURLcode cf_h2_connect(struct Curl_cfilter *cf,
     result = cf_h2_ctx_open(cf, data);
     if(result)
       goto out;
+    first_time = TRUE;
   }
 
-  result = h2_progress_ingress(cf, data, H2_CHUNK_SIZE);
-  if(result)
-    goto out;
+  if(!first_time) {
+    result = h2_progress_ingress(cf, data, H2_CHUNK_SIZE);
+    if(result)
+      goto out;
+  }
 
   /* Send out our SETTINGS and ACKs and such. If that blocks, we
    * have it buffered and  can count this filter as being connected */
@@ -2785,8 +2812,8 @@ out:
   return result;
 }
 
-static bool Curl_cf_is_http2(struct Curl_cfilter *cf,
-                             const struct Curl_easy *data)
+static bool cf_is_http2(struct Curl_cfilter *cf,
+                        const struct Curl_easy *data)
 {
   (void)data;
   for(; cf; cf = cf->next) {
@@ -2802,7 +2829,7 @@ bool Curl_conn_is_http2(const struct Curl_easy *data,
                         const struct connectdata *conn,
                         int sockindex)
 {
-  return conn ? Curl_cf_is_http2(conn->cfilter[sockindex], data) : FALSE;
+  return conn ? cf_is_http2(conn->cfilter[sockindex], data) : FALSE;
 }
 
 bool Curl_http2_may_switch(struct Curl_easy *data,
@@ -2854,7 +2881,7 @@ CURLcode Curl_http2_switch_at(struct Curl_cfilter *cf, struct Curl_easy *data)
   struct Curl_cfilter *cf_h2;
   CURLcode result;
 
-  DEBUGASSERT(!Curl_cf_is_http2(cf, data));
+  DEBUGASSERT(!cf_is_http2(cf, data));
 
   result = http2_cfilter_insert_after(cf, data, FALSE);
   if(result)
@@ -2933,6 +2960,30 @@ bool Curl_h2_http_1_1_error(struct Curl_easy *data)
     return (err == NGHTTP2_HTTP_1_1_REQUIRED);
   }
   return FALSE;
+}
+
+void *Curl_nghttp2_malloc(size_t size, void *user_data)
+{
+  (void)user_data;
+  return Curl_cmalloc(size);
+}
+
+void Curl_nghttp2_free(void *ptr, void *user_data)
+{
+  (void)user_data;
+  Curl_cfree(ptr);
+}
+
+void *Curl_nghttp2_calloc(size_t nmemb, size_t size, void *user_data)
+{
+  (void)user_data;
+  return Curl_ccalloc(nmemb, size);
+}
+
+void *Curl_nghttp2_realloc(void *ptr, size_t size, void *user_data)
+{
+  (void)user_data;
+  return Curl_crealloc(ptr, size);
 }
 
 #else /* !USE_NGHTTP2 */

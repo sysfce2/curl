@@ -37,6 +37,7 @@
 #include "sendf.h"
 #include "vtls.h"
 #include "vtls_int.h"
+#include "rustls.h"
 #include "select.h"
 #include "strerror.h"
 #include "multiif.h"
@@ -570,7 +571,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       break;
     default:
       failf(data, "rustls: unsupported minimum TLS version value");
-      return CURLE_SSL_ENGINE_INITFAILED;
+      return CURLE_BAD_FUNCTION_ARGUMENT;
     }
 
     switch(conn_config->version_max) {
@@ -588,7 +589,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     case CURL_SSLVERSION_MAX_TLSv1_0:
     default:
       failf(data, "rustls: unsupported maximum TLS version value");
-      return CURLE_SSL_ENGINE_INITFAILED;
+      return CURLE_BAD_FUNCTION_ARGUMENT;
     }
 
     cipher_suites = malloc(sizeof(cipher_suites) * (cipher_suites_len));
@@ -610,7 +611,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     if(result != RUSTLS_RESULT_OK) {
       failf(data,
             "rustls: failed to create crypto provider builder from default");
-      return CURLE_SSL_ENGINE_INITFAILED;
+      return CURLE_SSL_CIPHER;
     }
 
     result =
@@ -622,7 +623,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       failf(data,
             "rustls: failed to set ciphersuites for crypto provider builder");
       rustls_crypto_provider_builder_free(custom_provider_builder);
-      return CURLE_SSL_ENGINE_INITFAILED;
+      return CURLE_SSL_CIPHER;
     }
 
     result = rustls_crypto_provider_builder_build(
@@ -630,7 +631,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     if(result != RUSTLS_RESULT_OK) {
       failf(data, "rustls: failed to build custom crypto provider");
       rustls_crypto_provider_builder_free(custom_provider_builder);
-      return CURLE_SSL_ENGINE_INITFAILED;
+      return CURLE_SSL_CIPHER;
     }
 
     result = rustls_client_config_builder_new_custom(custom_provider,
@@ -640,7 +641,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     free(cipher_suites);
     if(result != RUSTLS_RESULT_OK) {
       failf(data, "rustls: failed to create client config");
-      return CURLE_SSL_ENGINE_INITFAILED;
+      return CURLE_SSL_CIPHER;
     }
   }
 
@@ -747,7 +748,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
   if(result != RUSTLS_RESULT_OK) {
     failf(data, "rustls: failed to build client config");
     rustls_client_config_free(backend->config);
-    return CURLE_SSL_ENGINE_INITFAILED;
+    return CURLE_SSL_CONNECT_ERROR;
   }
 
   DEBUGASSERT(rconn == NULL);
@@ -768,11 +769,12 @@ static void
 cr_set_negotiated_alpn(struct Curl_cfilter *cf, struct Curl_easy *data,
   const struct rustls_connection *rconn)
 {
+  struct ssl_connect_data *const connssl = cf->ctx;
   const uint8_t *protocol = NULL;
   size_t len = 0;
 
   rustls_connection_get_alpn_protocol(rconn, &protocol, &len);
-  Curl_alpn_set_negotiated(cf, data, protocol, len);
+  Curl_alpn_set_negotiated(cf, data, connssl, protocol, len);
 }
 
 /* Given an established network connection, do a TLS handshake.
@@ -894,7 +896,7 @@ cr_connect_common(struct Curl_cfilter *cf,
     }
     if(0 == what) {
       CURL_TRC_CF(data, cf, "Curl_socket_check: %s would block",
-            wants_read&&wants_write ? "writing and reading" :
+            wants_read && wants_write ? "writing and reading" :
             wants_write ? "writing" : "reading");
       if(wants_write)
         connssl->io_need |= CURL_SSL_IO_NEED_SEND;
