@@ -256,6 +256,7 @@ up. Subsets of tests can now be selected by passing keywords to the
 runtests.pl script via the make `TFLAGS` variable.
 
 New tests are added by finding a free number in `tests/data/Makefile.am`.
+The script `scripts/testnum` automates this search for you.
 
 ## Write tests
 
